@@ -75,6 +75,7 @@
     <Content Include="Web.config" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Classes\CreateDataProjectReturn.cs" />
     <Compile Include="Classes\GetRAByDateRangeReturn.cs" />
     <Compile Include="Classes\Timesheet.cs" />
     <Compile Include="Helpers\Triskell.cs" />

@@ -8,6 +8,9 @@ using TriskellMiddleware.Classes;
 using TriskellMiddleware.Helpers;
 using Newtonsoft.Json;
 using System.Text;
+using System.Xml;
+using System.Xml.Serialization;
+using System.IO;
 
 namespace TriskellMiddleware
 {
@@ -24,6 +27,7 @@ namespace TriskellMiddleware
 
         [WebMethod]
         //date in format AAAAMMDD
+        // WebService GetApprovedTimesheetsByDateRange
         public GetApprovedTimesheetsByDateRangeReturn GetApprovedTimesheetsByDateRange(string dateFrom, string dateTo)
         {
 
@@ -119,8 +123,8 @@ namespace TriskellMiddleware
                         "{" +
                             "'id' : 0," +               //fixo, não mexer
                             "'params' : {" +
-                                "'REPORTID':'" + reportId + "'," +             
-                                "'valuesByParams':'" + reportParams  + "'" +    
+                                "'REPORTID':'" + reportId + "'," +
+                                "'valuesByParams':'" + reportParams + "'" +
                             "}," +
                             "'objects' : null" +        //fixo, não mexer
                         "}";
@@ -170,5 +174,157 @@ namespace TriskellMiddleware
             return oReturn;
 
         }
-    }
+
+        [WebMethod]
+        // Webservice - Criar projecto em Triskell
+        public CreateDataProjectReturn CreateDataProject()
+        {
+            // criar o objecto da resposta
+            CreateDataProjectReturn oReturn = new CreateDataProjectReturn();
+
+            // primeiro há que invocar a API do triskell para efetuar o login com um user API REST
+            var authentication = new TriskellAuthentication
+            {
+                user = System.Configuration.ConfigurationManager.AppSettings["Triskell_API_Username"].ToString(),
+                password = Triskell.ComputeSha256Hash(System.Configuration.ConfigurationManager.AppSettings["Triskell_API_Password"].ToString())
+            };
+
+            var httpClient = new HttpClient();
+
+            var httpContent = new StringContent(JsonConvert.SerializeObject(authentication), Encoding.UTF8, "application/json");
+
+            //System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
+
+            HttpResponseMessage httpResponse = httpClient.PostAsync(System.Configuration.ConfigurationManager.AppSettings["Triskell_API_LoginJSON"].ToString(), httpContent).Result;
+
+            if (httpResponse.Content != null)
+            {
+                string jsonContent = httpResponse.Content.ReadAsStringAsync().Result.ToString();
+
+                if (httpResponse.IsSuccessStatusCode) // success
+                {
+                    //XML do INPUT 
+
+                    string GetProjectDataXMLRequest =
+                        "<dataobjects>" +
+                            "<dataobject>" +
+                                "<object>Project</object>" +
+                                "<name>500</name>" +
+                                "<description>Project X Description</description>" +
+                                "<stage>1.Sale</stage>" +
+                                "<pool>OWN</pool>" +
+                                "<parentid>1025</parentid>" +
+                                "<currency>5</currency>" +
+                                "<attributes>" +
+                                "<attribute>" +
+                                    "<name>Company</name>" +
+                                    "<value>1000</value>" +
+                                "</attribute>" +
+                                "<attribute>" +
+                                    "<name>Products</name>" +
+                                    "<value>SAP</value>" +
+                                 "</attribute>" +
+                                 "<attribute>" +
+                                    "<name>Profit Center</name>" +
+                                    "<value>PT10101001</value>" +
+                                 "</attribute>" +
+                                 "<attribute>" +
+                                    "<name>Project Group</name>" +
+                                    "<value>Customer</value>" +
+                                 "</attribute>" +
+                                 "<attribute>" +
+                                    "<name>Client</name>" +
+                                    "<value>100818</value>" +
+                                 "</attribute>" +
+                                 "<attribute>" +
+                                    "<name>Contract Type</name>" +
+                                    "<value>PF</value>" +
+                                 "</attribute>" +
+                                 "<attribute>" +
+                                    "<name>Business Unit</name>" +
+                                    "<value>AMS</value>" +
+                                 "</attribute>" +
+                                 "</attributes>" +
+                                 "<user_roles>" +
+                                    "<user_role>" +
+                                        "<user_code>HAA</user_code>" +
+                                        "<role>Controller</role>" +
+                                    "</user_role>" +
+                                    "<user_role>" +
+                                        "<user_code>VEC</user_code>" +
+                                        "<role>Project Manager</role>" +
+                                    "</user_role>" +
+                                    "<user_role>" +
+                                        "<user_code>JCC</user_code>" +
+                                        "<role>Project Director</role>" +
+                                    "</user_role>" +
+                                 "</user_roles>" + 
+                                "</dataobject>" +
+                                "</dataobjects>";
+
+                    // Pedido no formato XML
+                    httpContent = new StringContent(GetProjectDataXMLRequest, Encoding.UTF8, "text/xml");
+
+                    httpResponse = httpClient.PostAsync(System.Configuration.ConfigurationManager.AppSettings["Triskell_API_DataobjectCreate"].ToString(), httpContent).Result;
+
+                    if (httpResponse.Content != null)
+                    {
+                        var GetProjectDataXMLResponse = httpResponse.Content.ReadAsStringAsync();
+
+                        if (httpResponse.IsSuccessStatusCode) // success
+                        {
+
+                            XmlDocument doc = new XmlDocument();
+                            doc.LoadXml(GetProjectDataXMLResponse.Result);
+                            XmlElement root = doc.DocumentElement;
+
+                            // validar se a resposta contém dados xml no formato <dataobjects>
+                            if (root.LocalName == "dataobjects")
+                            {
+                                XmlNodeList xmlResult = root.GetElementsByTagName("result");
+                                string sResult = xmlResult[0].InnerText;
+
+                                if (sResult == "OK")
+                                {
+                                    XmlNodeList xmlProjectName = root.GetElementsByTagName("name");
+                                    string sProjectName = xmlProjectName[0].InnerText;
+                                    XmlNodeList xmlProjectTriskellId = root.GetElementsByTagName("dataobjectid");
+                                    string sProjectTriskellId = xmlProjectTriskellId[0].InnerText;
+
+                                    oReturn.SuccessMsg = "Projecto '" + sProjectName + "' criado com id '" + sProjectTriskellId + "'";
+                                    oReturn.Error = false;
+                                }
+                                else
+                                {
+                                    XmlNodeList xmlError = root.GetElementsByTagName("error");
+                                    string sError = xmlError[0].InnerText;
+
+                                    oReturn.Error = true;
+                                    oReturn.ErrorMsg = sError;
+                                }
+                            }
+                            else
+                            {
+                                oReturn.Error = true;
+                                oReturn.ErrorMsg = "Incoerência na autenticação e chamada do método. Verificar configurações do webservice";
+                            }
+                        
+                            }
+                    else
+                    {
+                        oReturn.Error = true;
+                        oReturn.ErrorMsg = "Erro ao invocar a criação de um projeto";
+                    }
+                }
+            }
+                else
+                {
+                    oReturn.Error = true;
+                    oReturn.ErrorMsg = "Erro no login em Triskell com o user " + authentication.user + " (user Triskell deverá ser do tipo REST API Client)";
+                }
+            }
+                return oReturn;
+        }
+
+        }
 }
